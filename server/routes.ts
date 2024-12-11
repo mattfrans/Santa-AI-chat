@@ -1,7 +1,7 @@
 import { Express } from "express";
 import { setupAuth } from "./auth";
 import { db } from "../db";
-import { chats, wishlistItems } from "@db/schema";
+import { chats, wishlistItems, users } from "@db/schema";
 import { eq } from "drizzle-orm";
 
 export function registerRoutes(app: Express) {
@@ -25,8 +25,26 @@ export function registerRoutes(app: Express) {
       isFromSanta: false
     });
 
-    // Generate Santa's response (simplified)
-    const santaResponse = `Ho ho ho! Thank you for your message: "${message}"`;
+    // Generate Santa's response
+    const generateSantaResponse = (message: string) => {
+      const greetings = ["Ho ho ho!", "Merry Christmas!", "Happy Holidays!"];
+      const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+      
+      // Simple keyword-based responses
+      if (message.toLowerCase().includes("wish") || message.toLowerCase().includes("want")) {
+        return `${greeting} That sounds wonderful! Have you been good this year? Make sure to add it to your wishlist!`;
+      } else if (message.toLowerCase().includes("thank")) {
+        return `${greeting} You're very welcome! Remember to spread joy and kindness to others!`;
+      } else if (message.toLowerCase().includes("hello") || message.toLowerCase().includes("hi")) {
+        return `${greeting} How wonderful to hear from you! Tell me, what makes your heart happy this Christmas?`;
+      } else if (message.toLowerCase().includes("good") || message.toLowerCase().includes("nice")) {
+        return `${greeting} I'm so glad to hear that! Keep up the great work, and remember that being kind to others is the best gift of all!`;
+      }
+      
+      return `${greeting} Thank you for your message! Remember, the magic of Christmas lives in your heart!`;
+    };
+
+    const santaResponse = generateSantaResponse(message);
     
     // Store Santa's response
     const [response] = await db.insert(chats).values({
