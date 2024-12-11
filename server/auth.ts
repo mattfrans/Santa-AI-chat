@@ -1,11 +1,11 @@
 import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
+import { IVerifyOptions, Strategy as LocalStrategy } from "passport-local";
 import { type Express } from "express";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, insertUserSchema } from "@db/schema";
+import { users, insertUserSchema, type User } from "@db/schema";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 
@@ -30,7 +30,7 @@ const crypto = {
 
 declare global {
   namespace Express {
-    interface User extends SelectUser {}
+    interface User extends User {}
   }
 }
 
@@ -78,7 +78,7 @@ export function setupAuth(app: Express) {
     })
   );
 
-  passport.serializeUser((user, done) => {
+  passport.serializeUser((user: Express.User, done) => {
     done(null, user.id);
   });
 
@@ -128,13 +128,14 @@ export function setupAuth(app: Express) {
         .values({
           username,
           password: hashedPassword,
-          isParent: isParent || false,
-          parentId
+          isParent: formattedData.isParent
         })
         .returning();
 
       req.login(newUser, (err) => {
-        if (err) return next(err);
+        if (err) {
+          return next(err);
+        }
         return res.json({
           message: "Registration successful",
           user: { 
@@ -150,12 +151,18 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
-      if (err) return next(err);
-      if (!user) return res.status(400).send(info?.message || "Login failed");
+    passport.authenticate("local", (err: any, user: Express.User | false, info: IVerifyOptions | undefined) => {
+      if (err) {
+        return next(err);
+      }
+      if (!user) {
+        return res.status(400).send(info?.message || "Login failed");
+      }
 
       req.logIn(user, (err) => {
-        if (err) return next(err);
+        if (err) {
+          return next(err);
+        }
         return res.json({
           message: "Login successful",
           user: { 
@@ -170,7 +177,9 @@ export function setupAuth(app: Express) {
 
   app.post("/api/logout", (req, res) => {
     req.logout((err) => {
-      if (err) return res.status(500).send("Logout failed");
+      if (err) {
+        return res.status(500).send("Logout failed");
+      }
       res.json({ message: "Logout successful" });
     });
   });
