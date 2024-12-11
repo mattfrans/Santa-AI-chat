@@ -97,14 +97,19 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
-      const result = insertUserSchema.safeParse(req.body);
+      const { username, password, isParent } = req.body;
+      const formattedData = {
+        username,
+        password,
+        isParent: isParent === true || isParent === "true",
+      };
+      
+      const result = insertUserSchema.safeParse(formattedData);
       if (!result.success) {
         return res.status(400).send(
           "Invalid input: " + result.error.issues.map(i => i.message).join(", ")
         );
       }
-
-      const { username, password, isParent, parentId } = result.data;
 
       const [existingUser] = await db
         .select()
