@@ -26,25 +26,63 @@ export function registerRoutes(app: Express) {
     });
 
     // Generate Santa's response
-    const generateSantaResponse = (message: string) => {
-      const greetings = ["Ho ho ho!", "Merry Christmas!", "Happy Holidays!"];
+    const generateSantaResponse = async (message: string, userId: number) => {
+      const greetings = [
+        "Ho ho ho!",
+        "Merry Christmas, my dear friend!",
+        "Happy Holidays, wonderful child!",
+        "Oh, what joy to hear from you!"
+      ];
       const greeting = greetings[Math.floor(Math.random() * greetings.length)];
       
-      // Simple keyword-based responses
-      if (message.toLowerCase().includes("wish") || message.toLowerCase().includes("want")) {
-        return `${greeting} That sounds wonderful! Have you been good this year? Make sure to add it to your wishlist!`;
-      } else if (message.toLowerCase().includes("thank")) {
-        return `${greeting} You're very welcome! Remember to spread joy and kindness to others!`;
-      } else if (message.toLowerCase().includes("hello") || message.toLowerCase().includes("hi")) {
-        return `${greeting} How wonderful to hear from you! Tell me, what makes your heart happy this Christmas?`;
-      } else if (message.toLowerCase().includes("good") || message.toLowerCase().includes("nice")) {
-        return `${greeting} I'm so glad to hear that! Keep up the great work, and remember that being kind to others is the best gift of all!`;
+      // Get user's wishlist for context
+      const wishlist = await db.select()
+        .from(wishlistItems)
+        .where(eq(wishlistItems.userId, userId))
+        .orderBy(wishlistItems.createdAt);
+
+      const messageL = message.toLowerCase();
+      
+      // Context-aware responses
+      if (messageL.includes("wish") || messageL.includes("want") || messageL.includes("present")) {
+        if (wishlist.length > 0) {
+          const recentItem = wishlist[wishlist.length - 1];
+          return `${greeting} I see you've added ${recentItem.item} to your wishlist! That's wonderful! My elves are working very hard in their workshop. Have you been good this year?`;
+        }
+        return `${greeting} What a lovely thought! Make sure to add your wishes to your special wishlist. My elves check it every day!`;
+      } 
+      
+      if (messageL.includes("thank")) {
+        return `${greeting} You're very welcome, dear child! Your kindness warms my heart more than a cup of Mrs. Claus's hot cocoa! Remember to spread that wonderful Christmas spirit to everyone you meet!`;
+      } 
+      
+      if (messageL.includes("hello") || messageL.includes("hi")) {
+        if (wishlist.length > 0) {
+          return `${greeting} How delightful to hear from you! I've been reading your wishlist with great interest. The elves are especially excited about making toys this year!`;
+        }
+        return `${greeting} How wonderful to hear from you! Tell me, what makes your heart happy this Christmas season?`;
+      } 
+      
+      if (messageL.includes("good") || messageL.includes("nice")) {
+        return `${greeting} That's exactly what I love to hear! My elves have been telling me wonderful things about you. Keep spreading joy and kindness - they're the true magic of Christmas!`;
       }
       
-      return `${greeting} Thank you for your message! Remember, the magic of Christmas lives in your heart!`;
+      if (messageL.includes("cookie") || messageL.includes("milk")) {
+        return `${greeting} Oh, how thoughtful of you to mention cookies! Mrs. Claus just baked a fresh batch at the North Pole. Don't forget to leave some out on Christmas Eve - they're my favorite part of the journey!`;
+      }
+      
+      if (messageL.includes("reindeer") || messageL.includes("rudolph")) {
+        return `${greeting} Ah, the reindeer are doing splendidly! Rudolph's nose is glowing brighter than ever, and they're all practicing their takeoffs and landings for the big night!`;
+      }
+      
+      if (messageL.includes("elf") || messageL.includes("elves")) {
+        return `${greeting} My elves are bustling about the workshop, spreading Christmas cheer and crafting presents with love. They send their jolly greetings to you!`;
+      }
+      
+      return `${greeting} Your message brings warmth to my heart! Remember, the magic of Christmas lives in every kind deed and happy smile. Is there anything special you'd like to tell Santa about?`;
     };
 
-    const santaResponse = generateSantaResponse(message);
+    const santaResponse = await generateSantaResponse(message, req.user.id);
     
     // Store Santa's response
     const [response] = await db.insert(chats).values({
