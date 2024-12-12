@@ -18,63 +18,66 @@ export function registerRoutes(app: Express) {
       return res.status(400).send("Message is required");
     }
 
-    // Store user message
-    await db.insert(chats).values({
-      userId: req.user.id,
-      message,
-      isFromSanta: false
-    });
-
-    // Generate Santa's response using OpenAI
-    const generateSantaResponse = async (message: string, userId: number) => {
-      const OpenAI = require('openai');
-      
-      if (!process.env.OPENAI_API_KEY) {
-        throw new Error("OpenAI API key is not configured");
-      }
-      
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY
+    try {
+      // Store user message
+      await db.insert(chats).values({
+        userId: req.user.id,
+        message,
+        isFromSanta: false
       });
 
+      // Generate Santa's response
+      let santaResponse = "";
       try {
+        const OpenAI = await import('openai');
+        
+        if (!process.env.OPENAI_API_KEY) {
+          throw new Error("OpenAI API key is not configured");
+        }
+        
+        const openai = new OpenAI.OpenAI({
+          apiKey: process.env.OPENAI_API_KEY
+        });
+
         // Get user's wishlist and chat history for context
         const wishlist = await db.select()
           .from(wishlistItems)
-          .where(eq(wishlistItems.userId, userId))
+          .where(eq(wishlistItems.userId, req.user.id))
           .orderBy(wishlistItems.createdAt);
         
         const chatHistory = await db.select()
           .from(chats)
-          .where(eq(chats.userId, userId))
+          .where(eq(chats.userId, req.user.id))
           .orderBy(chats.createdAt)
-          .limit(5);  // Get last 5 messages for context
+          .limit(5);
 
         const wishlistContext = wishlist.length > 0
-          ? `The child's wishlist contains: ${wishlist.map(w => w.item).join(', ')}.`
-          : "The child hasn't added any items to their wishlist yet.";
+          ? "I see you have some wonderful wishes on your list!"
+          : "I'd love to hear about what you're wishing for this Christmas!";
 
         const conversationContext = chatHistory
           .map(chat => `${chat.isFromSanta ? 'Santa' : 'Child'}: ${chat.message}`)
           .join('\n');
 
-        const systemPrompt = `You are Santa Claus having a cheerful conversation with a child. Always maintain a warm, jolly, and family-friendly tone.
+        const systemPrompt = `You are Santa Claus having a cheerful conversation with a child. You must maintain a warm, jolly, and strictly family-friendly tone.
 
 IMPORTANT RULES:
-- Always stay in character as Santa Claus
-- Use phrases like "Ho ho ho!" occasionally
-- Make references to the North Pole, elves, reindeer, and Mrs. Claus
-- Never promise specific gifts
-- Encourage good behavior, kindness, and the spirit of giving
-- Keep responses positive and age-appropriate
-- If the child mentions inappropriate content, gently redirect the conversation to appropriate Christmas topics
-- Response should be 2-3 sentences maximum
-
-Current context:
-${wishlistContext}
+- You are Santa Claus, a kind and wise figure who promotes goodness and joy
+- Always maintain a wholesome, family-friendly tone
+- Use "Ho ho ho!" occasionally and reference the North Pole, elves, reindeer, and Mrs. Claus
+- Never promise specific gifts or mention items from wishlists
+- Focus on kindness, sharing, and the spirit of Christmas
+- Keep responses positive, age-appropriate, and 2-3 sentences long
+- If a child mentions anything inappropriate:
+  * Do not acknowledge or repeat inappropriate content
+  * Gently redirect to positive topics like helping others, being kind, or holiday traditions
+  * Use phrases like "Let's talk about spreading Christmas cheer!" or "Tell me about your favorite holiday traditions!"
+- Never generate responses that could be inappropriate for children
 
 Recent conversation:
-${conversationContext}`;
+${conversationContext}
+
+Remember: Keep the magic of Christmas alive while promoting kindness and joy!`;
 
         const completion = await openai.chat.completions.create({
           messages: [
@@ -88,36 +91,33 @@ ${conversationContext}`;
           frequency_penalty: 0.5
         });
 
-        return completion.choices[0].message.content;
-      } catch (error: any) {
+        santaResponse = completion.choices[0].message.content || "";
+      } catch (error) {
         console.error('OpenAI API Error:', error);
         
-        if (error.message === "OpenAI API key is not configured") {
-          throw error;
-        }
-        
-        // Fallback responses for other errors
+        // Family-friendly fallback responses
         const fallbackResponses = [
-          "Ho ho ho! Santa's magic crystal ball is a bit foggy right now, but I'm still here and happy to chat! What would you like to tell me?",
-          "Merry Christmas! The elves are making quite a commotion in the workshop, making it hard to hear. Could you share that with me again?",
-          "Ho ho ho! Mrs. Claus just called me for some hot cocoa. I'll be right back to chat more about Christmas joy!",
-          "The reindeer are practicing for Christmas Eve and making it hard to concentrate! Could you tell me again what makes you excited about Christmas?"
+          "Ho ho ho! The North Pole is extra busy today! Tell me, what makes you excited about Christmas?",
+          "Merry Christmas! Mrs. Claus and I were just talking about holiday traditions. Do you have any special traditions?",
+          "The elves are singing carols in the workshop today! What's your favorite Christmas song?",
+          "Rudolph's nose is glowing extra bright today! What's your favorite part of Christmas?"
         ];
         
-        return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+        santaResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
       }
-    };
+      
+      // Store Santa's response
+      const [response] = await db.insert(chats).values({
+        userId: req.user.id,
+        message: santaResponse,
+        isFromSanta: true
+      }).returning();
 
-    const santaResponse = await generateSantaResponse(message, req.user.id);
-    
-    // Store Santa's response
-    const [response] = await db.insert(chats).values({
-      userId: req.user.id,
-      message: santaResponse,
-      isFromSanta: true
-    }).returning();
-
-    res.json(response);
+      res.json(response);
+    } catch (error) {
+      console.error('Server Error:', error);
+      res.status(500).send("An error occurred while processing your message");
+    }
   });
 
   // Get chat history
@@ -126,12 +126,17 @@ ${conversationContext}`;
       return res.status(401).send("Not authenticated");
     }
 
-    const history = await db.select()
-      .from(chats)
-      .where(eq(chats.userId, req.user.id))
-      .orderBy(chats.createdAt);
+    try {
+      const history = await db.select()
+        .from(chats)
+        .where(eq(chats.userId, req.user.id))
+        .orderBy(chats.createdAt);
 
-    res.json(history);
+      res.json(history);
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
+      res.status(500).send("An error occurred while fetching chat history");
+    }
   });
 
   // Wishlist endpoints
@@ -145,17 +150,22 @@ ${conversationContext}`;
       return res.status(400).send("Item and category are required");
     }
 
-    const [wishlistItem] = await db.insert(wishlistItems)
-      .values({
-        userId: req.user.id,
-        item,
-        category,
-        priority: priority || 1,
-        notes
-      })
-      .returning();
+    try {
+      const [wishlistItem] = await db.insert(wishlistItems)
+        .values({
+          userId: req.user.id,
+          item,
+          category,
+          priority: priority || 1,
+          notes
+        })
+        .returning();
 
-    res.json(wishlistItem);
+      res.json(wishlistItem);
+    } catch (error) {
+      console.error('Error creating wishlist item:', error);
+      res.status(500).send("An error occurred while creating the wishlist item");
+    }
   });
 
   app.get("/api/wishlist", async (req, res) => {
@@ -163,12 +173,17 @@ ${conversationContext}`;
       return res.status(401).send("Not authenticated");
     }
 
-    const items = await db.select()
-      .from(wishlistItems)
-      .where(eq(wishlistItems.userId, req.user.id))
-      .orderBy(wishlistItems.priority);
+    try {
+      const items = await db.select()
+        .from(wishlistItems)
+        .where(eq(wishlistItems.userId, req.user.id))
+        .orderBy(wishlistItems.priority);
 
-    res.json(items);
+      res.json(items);
+    } catch (error) {
+      console.error('Error fetching wishlist:', error);
+      res.status(500).send("An error occurred while fetching the wishlist");
+    }
   });
 
   // Parent dashboard endpoint to get children's data
@@ -181,15 +196,20 @@ ${conversationContext}`;
       return res.status(403).send("Only parents can access this endpoint");
     }
 
-    const children = await db.query.users.findMany({
-      where: eq(users.parentId, req.user.id),
-      with: {
-        chats: true,
-        wishlistItems: true
-      }
-    });
+    try {
+      const children = await db.query.users.findMany({
+        where: eq(users.parentId, req.user.id),
+        with: {
+          chats: true,
+          wishlistItems: true
+        }
+      });
 
-    res.json(children);
+      res.json(children);
+    } catch (error) {
+      console.error('Error fetching children data:', error);
+      res.status(500).send("An error occurred while fetching children data");
+    }
   });
 
   return app;
