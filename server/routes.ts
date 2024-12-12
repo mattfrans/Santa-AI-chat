@@ -1,8 +1,19 @@
 import { Express } from "express";
 import { setupAuth } from "./auth";
 import { db } from "../db";
-import { chats, wishlistItems, users } from "@db/schema";
+import { chats, wishlistItems, users, type User } from "@db/schema";
 import { eq } from "drizzle-orm";
+import OpenAI from "openai";
+
+declare global {
+  namespace Express {
+    interface User extends User {}
+  }
+}
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export function registerRoutes(app: Express) {
   setupAuth(app);
@@ -26,68 +37,66 @@ export function registerRoutes(app: Express) {
         isFromSanta: false
       });
 
-      // Generate Santa's response using rule-based system
-      const getChristmasContext = async (userId: number) => {
-        const wishlist = await db.select()
-          .from(wishlistItems)
-          .where(eq(wishlistItems.userId, userId))
-          .orderBy(wishlistItems.createdAt);
+      // Get user's context including wishlist
+      const wishlist = await db.select()
+        .from(wishlistItems)
+        .where(eq(wishlistItems.userId, req.user.id))
+        .orderBy(wishlistItems.createdAt);
+
+      // Build context for Santa's response
+      const wishlistContext = wishlist.length > 0 
+        ? `The child's wishlist contains: ${wishlist.map(item => `${item.item} (category: ${item.category})`).join(', ')}.` 
+        : "The child hasn't added any items to their wishlist yet.";
+
+      const systemPrompt = `You are Santa Claus chatting with a child. Today is December 12, 2024.
+Key characteristics:
+- Jolly, warm, and encouraging
+- Use "Ho ho ho!" occasionally but not in every message
+- Reference North Pole, elves, Mrs. Claus, reindeer, or workshop when relevant
+- Keep responses brief (2-3 sentences)
+- Never promise specific gifts
+- Encourage good behavior and kindness
+- Always maintain the magic of Christmas
+- Be mindful of appropriate language and topics for children
+
+Current context: ${wishlistContext}
+
+Remember: Keep responses warm and friendly but avoid repetition. Engage with the child's messages naturally while maintaining Santa's character.`;
+
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ],
+          max_tokens: 150,
+          temperature: 0.7,
+          presence_penalty: 0.6, // Reduce repetition
+          frequency_penalty: 0.6, // Encourage diversity in responses
+        });
+
+        const santaResponse = completion.choices[0]?.message?.content || 
+          "Ho ho ho! The North Pole's internet connection seems a bit frosty. Let's try chatting again!";
         
-        return wishlist.length > 0;
-      };
+        // Store Santa's response
+        const [response] = await db.insert(chats).values({
+          userId: req.user.id,
+          message: santaResponse,
+          isFromSanta: true
+        }).returning();
 
-      const generateSantaResponse = async (message: string, hasWishlist: boolean) => {
-        message = message.toLowerCase();
-        
-        // Responses for different contexts
-        const responses = {
-          greeting: [
-            "Ho ho ho! Merry Christmas, my dear friend! How are you enjoying the holiday season?",
-            "Ho ho ho! What a joy to hear from you! The elves and I were just wrapping presents!",
-            "Merry Christmas! Mrs. Claus just baked some cookies while I was reading your message!"
-          ],
-          presents: [
-            "The spirit of giving is what makes Christmas magical! Have you thought about what you might give to others?",
-            "Ho ho ho! Remember, the best presents are the ones given with love and kindness!",
-            "The elves are working very hard in the workshop! Tell me, what makes Christmas special for you?"
-          ],
-          activities: [
-            "The reindeer love playing in the snow! What's your favorite winter activity?",
-            "Ho ho ho! The elves are decorating the workshop! Do you help decorate for Christmas?",
-            "Mrs. Claus and I love singing carols together! What's your favorite Christmas song?"
-          ],
-          default: [
-            "Ho ho ho! The magic of Christmas is in the joy we share! What makes you smile during the holidays?",
-            "The North Pole is extra sparkly today! Tell me about your favorite holiday traditions!",
-            "Rudolph and the other reindeer send their jolly greetings! What's your favorite part of Christmas?"
-          ]
-        };
-
-        // Select response category based on message content
-        let category = 'default';
-        if (message.match(/hi|hello|hey|greetings/)) {
-          category = 'greeting';
-        } else if (message.match(/present|gift|want|wish|toy/)) {
-          category = 'presents';
-        } else if (message.match(/play|game|song|carol|snow|decoration/)) {
-          category = 'activities';
-        }
-
-        const categoryResponses = responses[category];
-        return categoryResponses[Math.floor(Math.random() * categoryResponses.length)];
-      };
-
-      const hasWishlist = await getChristmasContext(req.user.id);
-      const santaResponse = await generateSantaResponse(message, hasWishlist);
-      
-      // Store Santa's response
-      const [response] = await db.insert(chats).values({
-        userId: req.user.id,
-        message: santaResponse,
-        isFromSanta: true
-      }).returning();
-
-      res.json(response);
+        res.json(response);
+      } catch (error: any) {
+        console.error('OpenAI API Error:', error);
+        // Provide a friendly fallback response
+        const fallbackResponse = await db.insert(chats).values({
+          userId: req.user.id,
+          message: "Ho ho ho! Mrs. Claus is calling me to help with some Christmas cookies. I'll be right back to chat more!",
+          isFromSanta: true
+        }).returning();
+        res.json(fallbackResponse);
+      }
     } catch (error) {
       console.error('Server Error:', error);
       res.status(500).send("An error occurred while processing your message");
