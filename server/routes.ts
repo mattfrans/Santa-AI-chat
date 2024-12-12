@@ -26,85 +26,59 @@ export function registerRoutes(app: Express) {
         isFromSanta: false
       });
 
-      // Generate Santa's response
-      let santaResponse = "";
-      try {
-        const OpenAI = await import('openai');
-        
-        if (!process.env.OPENAI_API_KEY) {
-          throw new Error("OpenAI API key is not configured");
-        }
-        
-        const openai = new OpenAI.OpenAI({
-          apiKey: process.env.OPENAI_API_KEY
-        });
-
-        // Get user's wishlist and chat history for context
+      // Generate Santa's response using rule-based system
+      const getChristmasContext = async (userId: number) => {
         const wishlist = await db.select()
           .from(wishlistItems)
-          .where(eq(wishlistItems.userId, req.user.id))
+          .where(eq(wishlistItems.userId, userId))
           .orderBy(wishlistItems.createdAt);
         
-        const chatHistory = await db.select()
-          .from(chats)
-          .where(eq(chats.userId, req.user.id))
-          .orderBy(chats.createdAt)
-          .limit(5);
+        return wishlist.length > 0;
+      };
 
-        const wishlistContext = wishlist.length > 0
-          ? "I see you have some wonderful wishes on your list!"
-          : "I'd love to hear about what you're wishing for this Christmas!";
-
-        const conversationContext = chatHistory
-          .map(chat => `${chat.isFromSanta ? 'Santa' : 'Child'}: ${chat.message}`)
-          .join('\n');
-
-        const systemPrompt = `You are Santa Claus having a cheerful conversation with a child. You must maintain a warm, jolly, and strictly family-friendly tone.
-
-IMPORTANT RULES:
-- You are Santa Claus, a kind and wise figure who promotes goodness and joy
-- Always maintain a wholesome, family-friendly tone
-- Use "Ho ho ho!" occasionally and reference the North Pole, elves, reindeer, and Mrs. Claus
-- Never promise specific gifts or mention items from wishlists
-- Focus on kindness, sharing, and the spirit of Christmas
-- Keep responses positive, age-appropriate, and 2-3 sentences long
-- If a child mentions anything inappropriate:
-  * Do not acknowledge or repeat inappropriate content
-  * Gently redirect to positive topics like helping others, being kind, or holiday traditions
-  * Use phrases like "Let's talk about spreading Christmas cheer!" or "Tell me about your favorite holiday traditions!"
-- Never generate responses that could be inappropriate for children
-
-Recent conversation:
-${conversationContext}
-
-Remember: Keep the magic of Christmas alive while promoting kindness and joy!`;
-
-        const completion = await openai.chat.completions.create({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: message }
+      const generateSantaResponse = async (message: string, hasWishlist: boolean) => {
+        message = message.toLowerCase();
+        
+        // Responses for different contexts
+        const responses = {
+          greeting: [
+            "Ho ho ho! Merry Christmas, my dear friend! How are you enjoying the holiday season?",
+            "Ho ho ho! What a joy to hear from you! The elves and I were just wrapping presents!",
+            "Merry Christmas! Mrs. Claus just baked some cookies while I was reading your message!"
           ],
-          model: 'gpt-3.5-turbo',
-          temperature: 0.7,
-          max_tokens: 150,
-          presence_penalty: 0.6,
-          frequency_penalty: 0.5
-        });
+          presents: [
+            "The spirit of giving is what makes Christmas magical! Have you thought about what you might give to others?",
+            "Ho ho ho! Remember, the best presents are the ones given with love and kindness!",
+            "The elves are working very hard in the workshop! Tell me, what makes Christmas special for you?"
+          ],
+          activities: [
+            "The reindeer love playing in the snow! What's your favorite winter activity?",
+            "Ho ho ho! The elves are decorating the workshop! Do you help decorate for Christmas?",
+            "Mrs. Claus and I love singing carols together! What's your favorite Christmas song?"
+          ],
+          default: [
+            "Ho ho ho! The magic of Christmas is in the joy we share! What makes you smile during the holidays?",
+            "The North Pole is extra sparkly today! Tell me about your favorite holiday traditions!",
+            "Rudolph and the other reindeer send their jolly greetings! What's your favorite part of Christmas?"
+          ]
+        };
 
-        santaResponse = completion.choices[0].message.content || "";
-      } catch (error) {
-        console.error('OpenAI API Error:', error);
-        
-        // Family-friendly fallback responses
-        const fallbackResponses = [
-          "Ho ho ho! The North Pole is extra busy today! Tell me, what makes you excited about Christmas?",
-          "Merry Christmas! Mrs. Claus and I were just talking about holiday traditions. Do you have any special traditions?",
-          "The elves are singing carols in the workshop today! What's your favorite Christmas song?",
-          "Rudolph's nose is glowing extra bright today! What's your favorite part of Christmas?"
-        ];
-        
-        santaResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
-      }
+        // Select response category based on message content
+        let category = 'default';
+        if (message.match(/hi|hello|hey|greetings/)) {
+          category = 'greeting';
+        } else if (message.match(/present|gift|want|wish|toy/)) {
+          category = 'presents';
+        } else if (message.match(/play|game|song|carol|snow|decoration/)) {
+          category = 'activities';
+        }
+
+        const categoryResponses = responses[category];
+        return categoryResponses[Math.floor(Math.random() * categoryResponses.length)];
+      };
+
+      const hasWishlist = await getChristmasContext(req.user.id);
+      const santaResponse = await generateSantaResponse(message, hasWishlist);
       
       // Store Santa's response
       const [response] = await db.insert(chats).values({
