@@ -25,61 +25,87 @@ export function registerRoutes(app: Express) {
       isFromSanta: false
     });
 
-    // Generate Santa's response
+    // Generate Santa's response using OpenAI
     const generateSantaResponse = async (message: string, userId: number) => {
-      const greetings = [
-        "Ho ho ho!",
-        "Merry Christmas, my dear friend!",
-        "Happy Holidays, wonderful child!",
-        "Oh, what joy to hear from you!"
-      ];
-      const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+      const OpenAI = require('openai');
       
-      // Get user's wishlist for context
-      const wishlist = await db.select()
-        .from(wishlistItems)
-        .where(eq(wishlistItems.userId, userId))
-        .orderBy(wishlistItems.createdAt);
+      if (!process.env.OPENAI_API_KEY) {
+        throw new Error("OpenAI API key is not configured");
+      }
+      
+      const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+      });
 
-      const messageL = message.toLowerCase();
-      
-      // Context-aware responses
-      if (messageL.includes("wish") || messageL.includes("want") || messageL.includes("present")) {
-        if (wishlist.length > 0) {
-          const recentItem = wishlist[wishlist.length - 1];
-          return `${greeting} I see you've added ${recentItem.item} to your wishlist! That's wonderful! My elves are working very hard in their workshop. Have you been good this year?`;
+      try {
+        // Get user's wishlist and chat history for context
+        const wishlist = await db.select()
+          .from(wishlistItems)
+          .where(eq(wishlistItems.userId, userId))
+          .orderBy(wishlistItems.createdAt);
+        
+        const chatHistory = await db.select()
+          .from(chats)
+          .where(eq(chats.userId, userId))
+          .orderBy(chats.createdAt)
+          .limit(5);  // Get last 5 messages for context
+
+        const wishlistContext = wishlist.length > 0
+          ? `The child's wishlist contains: ${wishlist.map(w => w.item).join(', ')}.`
+          : "The child hasn't added any items to their wishlist yet.";
+
+        const conversationContext = chatHistory
+          .map(chat => `${chat.isFromSanta ? 'Santa' : 'Child'}: ${chat.message}`)
+          .join('\n');
+
+        const systemPrompt = `You are Santa Claus having a cheerful conversation with a child. Always maintain a warm, jolly, and family-friendly tone.
+
+IMPORTANT RULES:
+- Always stay in character as Santa Claus
+- Use phrases like "Ho ho ho!" occasionally
+- Make references to the North Pole, elves, reindeer, and Mrs. Claus
+- Never promise specific gifts
+- Encourage good behavior, kindness, and the spirit of giving
+- Keep responses positive and age-appropriate
+- If the child mentions inappropriate content, gently redirect the conversation to appropriate Christmas topics
+- Response should be 2-3 sentences maximum
+
+Current context:
+${wishlistContext}
+
+Recent conversation:
+${conversationContext}`;
+
+        const completion = await openai.chat.completions.create({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message }
+          ],
+          model: 'gpt-3.5-turbo',
+          temperature: 0.7,
+          max_tokens: 150,
+          presence_penalty: 0.6,
+          frequency_penalty: 0.5
+        });
+
+        return completion.choices[0].message.content;
+      } catch (error: any) {
+        console.error('OpenAI API Error:', error);
+        
+        if (error.message === "OpenAI API key is not configured") {
+          throw error;
         }
-        return `${greeting} What a lovely thought! Make sure to add your wishes to your special wishlist. My elves check it every day!`;
-      } 
-      
-      if (messageL.includes("thank")) {
-        return `${greeting} You're very welcome, dear child! Your kindness warms my heart more than a cup of Mrs. Claus's hot cocoa! Remember to spread that wonderful Christmas spirit to everyone you meet!`;
-      } 
-      
-      if (messageL.includes("hello") || messageL.includes("hi")) {
-        if (wishlist.length > 0) {
-          return `${greeting} How delightful to hear from you! I've been reading your wishlist with great interest. The elves are especially excited about making toys this year!`;
-        }
-        return `${greeting} How wonderful to hear from you! Tell me, what makes your heart happy this Christmas season?`;
-      } 
-      
-      if (messageL.includes("good") || messageL.includes("nice")) {
-        return `${greeting} That's exactly what I love to hear! My elves have been telling me wonderful things about you. Keep spreading joy and kindness - they're the true magic of Christmas!`;
+        
+        // Fallback responses for other errors
+        const fallbackResponses = [
+          "Ho ho ho! Santa's magic crystal ball is a bit foggy right now, but I'm still here and happy to chat! What would you like to tell me?",
+          "Merry Christmas! The elves are making quite a commotion in the workshop, making it hard to hear. Could you share that with me again?",
+          "Ho ho ho! Mrs. Claus just called me for some hot cocoa. I'll be right back to chat more about Christmas joy!",
+          "The reindeer are practicing for Christmas Eve and making it hard to concentrate! Could you tell me again what makes you excited about Christmas?"
+        ];
+        
+        return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
       }
-      
-      if (messageL.includes("cookie") || messageL.includes("milk")) {
-        return `${greeting} Oh, how thoughtful of you to mention cookies! Mrs. Claus just baked a fresh batch at the North Pole. Don't forget to leave some out on Christmas Eve - they're my favorite part of the journey!`;
-      }
-      
-      if (messageL.includes("reindeer") || messageL.includes("rudolph")) {
-        return `${greeting} Ah, the reindeer are doing splendidly! Rudolph's nose is glowing brighter than ever, and they're all practicing their takeoffs and landings for the big night!`;
-      }
-      
-      if (messageL.includes("elf") || messageL.includes("elves")) {
-        return `${greeting} My elves are bustling about the workshop, spreading Christmas cheer and crafting presents with love. They send their jolly greetings to you!`;
-      }
-      
-      return `${greeting} Your message brings warmth to my heart! Remember, the magic of Christmas lives in every kind deed and happy smile. Is there anything special you'd like to tell Santa about?`;
     };
 
     const santaResponse = await generateSantaResponse(message, req.user.id);
