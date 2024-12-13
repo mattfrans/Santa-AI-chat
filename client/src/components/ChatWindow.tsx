@@ -15,9 +15,17 @@ export default function ChatWindow() {
   const { toast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { data: chats = [] } = useQuery<Chat[]>({
+  const { data: chats = [] } = useQuery({
     queryKey: ['/api/chats'],
-    onSuccess: () => {
+    queryFn: async () => {
+      const res = await fetch('/api/chats', {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch chats');
+      return res.json() as Promise<Chat[]>;
+    },
+    refetchInterval: false,
+    onSuccess: (data) => {
       // Scroll to bottom when new messages arrive
       setTimeout(() => {
         if (scrollRef.current) {

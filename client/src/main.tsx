@@ -28,7 +28,7 @@ function AppContent() {
   return (
     <Switch>
       <Route path="/" component={HomePage} />
-      <Route>
+      <Route path="*">
         <div className="min-h-screen bg-[#2C3E50] flex items-center justify-center text-white">
           404 Page Not Found
         </div>
@@ -40,12 +40,12 @@ function AppContent() {
 function App() {
   return (
     <StrictMode>
-      <WouterRouter>
-        <QueryClientProvider client={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <WouterRouter>
           <AppContent />
           <Toaster />
-        </QueryClientProvider>
-      </WouterRouter>
+        </WouterRouter>
+      </QueryClientProvider>
     </StrictMode>
   );
 }
