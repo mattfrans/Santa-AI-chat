@@ -228,6 +228,14 @@ export default function ChatWindow() {
     window.speechSynthesis.speak(utterance);
   };
 
+  const stopListening = () => {
+    if (recognition.current) {
+      recognition.current.abort(); // Use abort() instead of stop() for immediate halt
+      setIsListening(false);
+      setMessage(''); // Clear any partial message
+    }
+  };
+
   const toggleListening = async () => {
     try {
       if (!recognition.current) {
@@ -240,7 +248,7 @@ export default function ChatWindow() {
       }
 
       if (isListening) {
-        recognition.current.stop();
+        stopListening();
       } else {
         // Clear previous message when starting new recording
         setMessage('');
@@ -252,6 +260,10 @@ export default function ChatWindow() {
           
           // Start recognition
           recognition.current.start();
+          toast({
+            title: "Voice Input Started",
+            description: "Listening for your message to Santa...",
+          });
         } catch (error) {
           toast({
             title: "Microphone Access Denied",
@@ -270,6 +282,16 @@ export default function ChatWindow() {
       setIsListening(false);
     }
   };
+
+  // Clean up function for speech recognition
+  useEffect(() => {
+    return () => {
+      if (recognition.current) {
+        recognition.current.abort();
+        setIsListening(false);
+      }
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,18 +392,40 @@ export default function ChatWindow() {
               }`}
             />
           </motion.div>
-          <Button
-            type="button"
-            onClick={toggleListening}
-            className={`${
-              isListening 
-                ? 'bg-green-600 hover:bg-green-700' 
-                : 'bg-gray-600 hover:bg-gray-700'
-            } transition-all duration-200`}
-            title={isListening ? 'Stop listening' : 'Start voice input'}
+          <motion.div
+            animate={isListening ? {
+              scale: [1, 1.1, 1],
+              boxShadow: [
+                "0 0 0 0 rgba(34, 197, 94, 0)",
+                "0 0 0 10px rgba(34, 197, 94, 0.1)",
+                "0 0 0 0 rgba(34, 197, 94, 0)"
+              ]
+            } : {}}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
           >
-            <Mic className={`h-4 w-4 ${isListening ? 'animate-pulse' : ''}`} />
-          </Button>
+            <Button
+              type="button"
+              onClick={toggleListening}
+              className={`${
+                isListening 
+                  ? 'bg-green-600 hover:bg-green-700 ring-2 ring-green-400 ring-offset-2' 
+                  : 'bg-gray-600 hover:bg-gray-700'
+              } transition-all duration-200 relative`}
+              title={isListening ? 'Stop listening' : 'Start voice input'}
+            >
+              <Mic className="h-4 w-4" />
+              {isListening && (
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                </span>
+              )}
+            </Button>
+          </motion.div>
           <Button
             type="button"
             onClick={() => setAutoSpeak(!autoSpeak)}
@@ -429,14 +473,25 @@ export default function ChatWindow() {
           </Button>
         </div>
         {isListening && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-sm text-green-600 text-center"
-          >
-            Listening... Click the microphone or speak your message to Santa
-          </motion.div>
-        )}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ 
+                  opacity: [0.5, 1, 0.5],
+                  scale: [0.98, 1, 0.98]
+                }}
+                transition={{
+                  repeat: Infinity,
+                  duration: 1.5
+                }}
+                className="text-sm text-green-600 text-center p-2 bg-green-50 rounded-md border border-green-200"
+              >
+                🎙️ Listening to your message for Santa...
+                <br />
+                <span className="text-xs">
+                  (Click the microphone button again to stop)
+                </span>
+              </motion.div>
+            )}
       </form>
     </Card>
   );
