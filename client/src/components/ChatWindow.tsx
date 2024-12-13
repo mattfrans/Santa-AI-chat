@@ -13,9 +13,21 @@ export default function ChatWindow() {
   const [message, setMessage] = useState('');
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const { data: chats = [] } = useQuery<Chat[]>({
     queryKey: ['/api/chats'],
+    onSuccess: () => {
+      // Scroll to bottom when new messages arrive
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTo({
+            top: scrollRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+    }
   });
 
   const mutation = useMutation({
@@ -55,39 +67,57 @@ export default function ChatWindow() {
         <h2 className="text-xl font-bold">Chat with Santa</h2>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 p-4 relative" ref={scrollRef}>
         <div className="space-y-4">
-          <AnimatePresence mode="popLayout">
+          <AnimatePresence mode="popLayout" initial={false}>
             {chats.map((chat) => (
               <motion.div
                 key={chat.id}
                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
+                transition={{ 
+                  type: "spring",
+                  stiffness: 500,
+                  damping: 40,
+                  mass: 1
+                }}
                 className={`flex ${
                   chat.isFromSanta ? 'justify-start' : 'justify-end'
                 }`}
               >
                 <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  className={`max-w-[80%] p-3 rounded-lg shadow-lg ${
+                  whileHover={{ scale: 1.02, rotate: [-0.5, 0.5] }}
+                  transition={{
+                    rotate: {
+                      repeat: Infinity,
+                      repeatType: "reverse",
+                      duration: 0.3
+                    }
+                  }}
+                  className={`max-w-[80%] p-3 rounded-lg shadow-lg backdrop-blur-sm ${
                     chat.isFromSanta
-                      ? 'bg-red-100 text-red-900 hover:bg-red-50'
-                      : 'bg-green-100 text-green-900 hover:bg-green-50'
+                      ? 'bg-red-100/90 text-red-900 hover:bg-red-50/95 border border-red-200'
+                      : 'bg-green-100/90 text-green-900 hover:bg-green-50/95 border border-green-200'
                   }`}
                 >
-                  {chat.message}
-                  {chat.isFromSanta && chat.tone && (
-                    <span className="block mt-1 text-xs text-red-600/70 italic">
-                      {chat.tone === 'jolly' && '🎅 Ho ho ho!'}
-                      {chat.tone === 'caring' && '💝 With love from Santa'}
-                      {chat.tone === 'encouraging' && '⭐ Keep being good!'}
-                      {chat.tone === 'playful' && '🎮 Time for fun!'}
-                      {chat.tone === 'wise' && '📚 Santa knows best'}
-                      {chat.tone === 'merry' && '🎄 Merry Christmas!'}
-                    </span>
-                  )}
+                  <div className="relative">
+                    {chat.message}
+                    {chat.isFromSanta && chat.tone && (
+                      <motion.span
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="block mt-1 text-xs text-red-600/70 italic"
+                      >
+                        {chat.tone === 'jolly' && '🎅 Ho ho ho!'}
+                        {chat.tone === 'caring' && '💝 With love from Santa'}
+                        {chat.tone === 'encouraging' && '⭐ Keep being good!'}
+                        {chat.tone === 'playful' && '🎮 Time for fun!'}
+                        {chat.tone === 'wise' && '📚 Santa knows best'}
+                        {chat.tone === 'merry' && '🎄 Merry Christmas!'}
+                      </motion.span>
+                    )}
+                  </div>
                 </motion.div>
               </motion.div>
             ))}
@@ -114,14 +144,31 @@ export default function ChatWindow() {
             disabled={mutation.isPending}
           >
             {mutation.isPending ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              >
-                <Loader2 className="h-4 w-4" />
-              </motion.div>
+              <div className="flex items-center space-x-1">
+                <motion.div
+                  animate={{ 
+                    rotate: 360,
+                    scale: [1, 1.2, 1],
+                  }}
+                  transition={{ 
+                    rotate: { duration: 2, repeat: Infinity, ease: "linear" },
+                    scale: { duration: 1, repeat: Infinity }
+                  }}
+                  className="text-red-600"
+                >
+                  <Loader2 className="h-4 w-4" />
+                </motion.div>
+                <span className="text-sm">Sending to North Pole...</span>
+              </div>
             ) : (
-              "Send to Santa"
+              <motion.span
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center space-x-1"
+              >
+                <span>Send to Santa</span>
+                <span className="text-lg">🎅</span>
+              </motion.span>
             )}
           </Button>
         </div>
