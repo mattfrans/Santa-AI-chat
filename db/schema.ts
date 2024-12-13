@@ -16,6 +16,8 @@ export const chats = pgTable("chats", {
   userId: integer("user_id").references(() => users.id).notNull(),
   message: text("message").notNull(),
   isFromSanta: boolean("is_from_santa").default(false).notNull(),
+  tone: text("tone"),
+  suggestions: json("suggestions").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 
