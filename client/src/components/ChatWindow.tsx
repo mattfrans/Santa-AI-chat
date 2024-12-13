@@ -1,4 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/card';
@@ -6,14 +12,53 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Mic, Volume2, VolumeX } from 'lucide-react';
 import type { Chat } from '@db/schema';
 
 export default function ChatWindow() {
   const [message, setMessage] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const recognition = useRef<SpeechRecognition | null>(null);
+
+  useEffect(() => {
+    // Initialize speech recognition
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition.current = new SpeechRecognition();
+      recognition.current.continuous = true;
+      recognition.current.interimResults = true;
+
+      recognition.current.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0])
+          .map(result => result.transcript)
+          .join('');
+        
+        setMessage(transcript);
+      };
+
+      recognition.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+        toast({
+          variant: 'destructive',
+          title: 'Voice Input Error',
+          description: 'There was a problem with the voice input. Please try again.',
+        });
+      };
+    }
+
+    return () => {
+      if (recognition.current) {
+        recognition.current.stop();
+      }
+    };
+  }, []);
 
   const { data: chats = [] } = useQuery({
     queryKey: ['/api/chats'],
@@ -49,9 +94,14 @@ export default function ChatWindow() {
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
       setMessage('');
+      
+      // Auto-speak Santa's response if enabled
+      if (autoSpeak && response.isFromSanta) {
+        speakText(response.message);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -62,9 +112,54 @@ export default function ChatWindow() {
     },
   });
 
+  const speakText = async (text: string) => {
+    if (!window.speechSynthesis) return;
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9; // Slightly slower for Santa's voice
+    utterance.pitch = 0.9; // Slightly lower pitch for Santa
+    
+    // Find a deeper voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const deeperVoice = voices.find(voice => voice.name.includes('Male'));
+    if (deeperVoice) utterance.voice = deeperVoice;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const toggleListening = () => {
+    if (!recognition.current) {
+      toast({
+        title: "Voice Input Not Available",
+        description: "Your browser doesn't support voice input.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isListening) {
+      recognition.current.stop();
+      setIsListening(false);
+    } else {
+      recognition.current.start();
+      setIsListening(true);
+      setMessage('');
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim()) {
+      if (isListening) {
+        recognition.current?.stop();
+        setIsListening(false);
+      }
       mutation.mutate(message);
     }
   };
@@ -109,8 +204,17 @@ export default function ChatWindow() {
                       : 'bg-green-100/90 text-green-900 hover:bg-green-50/95 border border-green-200'
                   }`}
                 >
-                  <div className="relative">
-                    {chat.message}
+                  <div 
+                    className="relative cursor-pointer group" 
+                    onClick={() => chat.isFromSanta && speakText(chat.message)}
+                    title={chat.isFromSanta ? "Click to hear Santa speak!" : undefined}
+                  >
+                    <div className="flex items-center gap-2">
+                      {chat.message}
+                      {chat.isFromSanta && (
+                        <Volume2 className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </div>
                     {chat.isFromSanta && chat.tone && (
                       <motion.span
                         initial={{ opacity: 0, y: 10 }}
@@ -133,7 +237,7 @@ export default function ChatWindow() {
         </div>
       </ScrollArea>
 
-      <form onSubmit={handleSubmit} className="p-4 border-t">
+      <form onSubmit={handleSubmit} className="p-4 border-t space-y-2">
         <div className="flex gap-2">
           <motion.div className="flex-1"
             initial={false}
@@ -142,10 +246,36 @@ export default function ChatWindow() {
             <Input
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Type your message to Santa..."
-              className="flex-1 border-red-200 focus:border-red-300 transition-colors"
+              placeholder={isListening ? "Listening..." : "Type or speak your message to Santa..."}
+              className={`flex-1 border-red-200 focus:border-red-300 transition-colors ${
+                isListening ? 'bg-green-50' : ''
+              }`}
             />
           </motion.div>
+          <Button
+            type="button"
+            onClick={toggleListening}
+            className={`${
+              isListening 
+                ? 'bg-green-600 hover:bg-green-700' 
+                : 'bg-gray-600 hover:bg-gray-700'
+            } transition-all duration-200`}
+            title={isListening ? 'Stop listening' : 'Start voice input'}
+          >
+            <Mic className={`h-4 w-4 ${isListening ? 'animate-pulse' : ''}`} />
+          </Button>
+          <Button
+            type="button"
+            onClick={() => setAutoSpeak(!autoSpeak)}
+            className={`${
+              autoSpeak 
+                ? 'bg-blue-600 hover:bg-blue-700' 
+                : 'bg-gray-600 hover:bg-gray-700'
+            } transition-all duration-200`}
+            title={autoSpeak ? 'Turn off auto-speak' : 'Turn on auto-speak'}
+          >
+            {autoSpeak ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+          </Button>
           <Button
             type="submit"
             className="bg-red-700 hover:bg-red-800 transition-all duration-200"
@@ -180,6 +310,15 @@ export default function ChatWindow() {
             )}
           </Button>
         </div>
+        {isListening && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-sm text-green-600 text-center"
+          >
+            Listening... Click the microphone or speak your message to Santa
+          </motion.div>
+        )}
       </form>
     </Card>
   );
