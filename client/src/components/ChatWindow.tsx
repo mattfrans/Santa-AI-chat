@@ -1,10 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/card';
@@ -15,6 +9,54 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Mic, Volume2, VolumeX } from 'lucide-react';
 import type { Chat } from '@db/schema';
 
+// Define the SpeechRecognition types
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  readonly length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+  isFinal?: boolean;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: 'network' | 'not-allowed' | 'no-speech' | 'aborted' | 'audio-capture' | 'service-not-allowed';
+  message?: string;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognition;
+    webkitSpeechRecognition: new () => SpeechRecognition;
+  }
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
+  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
+  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
+  onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
+}
+
 export default function ChatWindow() {
   const [message, setMessage] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -24,6 +66,36 @@ export default function ChatWindow() {
   const { toast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognition = useRef<SpeechRecognition | null>(null);
+
+  // Define mutation before using it in useEffect
+  const mutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    onSuccess: (response: Chat) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
+      setMessage('');
+      
+      // Auto-speak Santa's response if enabled
+      if (autoSpeak && response.isFromSanta) {
+        speakText(response.message);
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message,
+      });
+    },
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -41,9 +113,9 @@ export default function ChatWindow() {
         recognition.current = new SpeechRecognition();
         
         // Configure recognition settings
-        recognition.current.continuous = false; // Changed to false to prevent network issues
+        recognition.current.continuous = false;
         recognition.current.interimResults = true;
-        recognition.current.lang = 'en-US'; // Set language explicitly
+        recognition.current.lang = 'en-US';
 
         recognition.current.onstart = () => {
           if (!mounted) return;
@@ -55,12 +127,11 @@ export default function ChatWindow() {
           setIsListening(false);
         };
 
-        recognition.current.onresult = (event) => {
+        recognition.current.onresult = (event: SpeechRecognitionEvent) => {
           if (!mounted) return;
           
           const transcript = Array.from(event.results)
-            .map(result => result[0])
-            .map(result => result.transcript)
+            .map(result => result[0].transcript)
             .join('');
           
           setMessage(transcript);
@@ -72,7 +143,7 @@ export default function ChatWindow() {
           }
         };
 
-        recognition.current.onerror = (event) => {
+        recognition.current.onerror = (event: SpeechRecognitionErrorEvent) => {
           if (!mounted) return;
           
           console.error('Speech recognition error:', event.error);
@@ -120,58 +191,20 @@ export default function ChatWindow() {
         recognition.current = null;
       }
     };
-  }, [mutation, toast]); // Added dependencies
+  }, [mutation, toast]);
 
-  const { data: chats = [] } = useQuery({
+  const { data: chats = [] } = useQuery<Chat[]>({
     queryKey: ['/api/chats'],
     queryFn: async () => {
       const res = await fetch('/api/chats', {
         credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to fetch chats');
-      return res.json() as Promise<Chat[]>;
-    },
-    refetchInterval: false,
-    onSuccess: (data) => {
-      // Scroll to bottom when new messages arrive
-      setTimeout(() => {
-        if (scrollRef.current) {
-          scrollRef.current.scrollTo({
-            top: scrollRef.current.scrollHeight,
-            behavior: 'smooth'
-          });
-        }
-      }, 100);
-    }
-  });
-
-  const mutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
-      setMessage('');
-      
-      // Auto-speak Santa's response if enabled
-      if (autoSpeak && response.isFromSanta) {
-        speakText(response.message);
-      }
-    },
-    onError: (error: Error) => {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: error.message,
-      });
-    },
+    refetchInterval: false,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const speakText = async (text: string) => {
