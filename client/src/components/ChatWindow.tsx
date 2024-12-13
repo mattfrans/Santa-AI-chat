@@ -26,39 +26,101 @@ export default function ChatWindow() {
   const recognition = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
-    // Initialize speech recognition
-    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognition.current = new SpeechRecognition();
-      recognition.current.continuous = true;
-      recognition.current.interimResults = true;
+    let mounted = true;
 
-      recognition.current.onresult = (event) => {
-        const transcript = Array.from(event.results)
-          .map(result => result[0])
-          .map(result => result.transcript)
-          .join('');
+    const initializeSpeechRecognition = () => {
+      if (!mounted) return;
+
+      try {
+        // Check for browser support
+        if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+          throw new Error('Speech recognition not supported in this browser');
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition.current = new SpeechRecognition();
         
-        setMessage(transcript);
-      };
+        // Configure recognition settings
+        recognition.current.continuous = false; // Changed to false to prevent network issues
+        recognition.current.interimResults = true;
+        recognition.current.lang = 'en-US'; // Set language explicitly
 
-      recognition.current.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
+        recognition.current.onstart = () => {
+          if (!mounted) return;
+          setIsListening(true);
+        };
+
+        recognition.current.onend = () => {
+          if (!mounted) return;
+          setIsListening(false);
+        };
+
+        recognition.current.onresult = (event) => {
+          if (!mounted) return;
+          
+          const transcript = Array.from(event.results)
+            .map(result => result[0])
+            .map(result => result.transcript)
+            .join('');
+          
+          setMessage(transcript);
+          
+          // Auto-submit if we have a final result
+          if (event.results[0].isFinal && transcript.trim()) {
+            recognition.current?.stop();
+            mutation.mutate(transcript);
+          }
+        };
+
+        recognition.current.onerror = (event) => {
+          if (!mounted) return;
+          
+          console.error('Speech recognition error:', event.error);
+          setIsListening(false);
+
+          let errorMessage = 'There was a problem with the voice input.';
+          
+          switch (event.error) {
+            case 'network':
+              errorMessage = 'Network error occurred. Please check your internet connection.';
+              break;
+            case 'not-allowed':
+              errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+              break;
+            case 'no-speech':
+              errorMessage = 'No speech was detected. Please try again.';
+              break;
+            case 'aborted':
+              return; // Don't show error for user-initiated stops
+          }
+
+          toast({
+            variant: 'destructive',
+            title: 'Voice Input Error',
+            description: errorMessage,
+          });
+        };
+
+      } catch (error) {
+        console.error('Speech recognition initialization error:', error);
         toast({
           variant: 'destructive',
-          title: 'Voice Input Error',
-          description: 'There was a problem with the voice input. Please try again.',
+          title: 'Voice Input Not Available',
+          description: 'Speech recognition is not supported in your browser. Please type your message instead.',
         });
-      };
-    }
-
-    return () => {
-      if (recognition.current) {
-        recognition.current.stop();
       }
     };
-  }, []);
+
+    initializeSpeechRecognition();
+
+    return () => {
+      mounted = false;
+      if (recognition.current) {
+        recognition.current.stop();
+        recognition.current = null;
+      }
+    };
+  }, [mutation, toast]); // Added dependencies
 
   const { data: chats = [] } = useQuery({
     queryKey: ['/api/chats'],
@@ -133,23 +195,46 @@ export default function ChatWindow() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const toggleListening = () => {
-    if (!recognition.current) {
+  const toggleListening = async () => {
+    try {
+      if (!recognition.current) {
+        toast({
+          title: "Voice Input Not Available",
+          description: "Your browser doesn't support voice input.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (isListening) {
+        recognition.current.stop();
+      } else {
+        // Clear previous message when starting new recording
+        setMessage('');
+        
+        try {
+          // Request microphone permission explicitly
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach(track => track.stop()); // Clean up
+          
+          // Start recognition
+          recognition.current.start();
+        } catch (error) {
+          toast({
+            title: "Microphone Access Denied",
+            description: "Please allow microphone access to use voice input.",
+            variant: "destructive",
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling speech recognition:', error);
       toast({
-        title: "Voice Input Not Available",
-        description: "Your browser doesn't support voice input.",
+        title: "Voice Input Error",
+        description: "There was an error with the voice input. Please try again.",
         variant: "destructive",
       });
-      return;
-    }
-
-    if (isListening) {
-      recognition.current.stop();
       setIsListening(false);
-    } else {
-      recognition.current.start();
-      setIsListening(true);
-      setMessage('');
     }
   };
 
