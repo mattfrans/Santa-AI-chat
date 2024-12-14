@@ -128,18 +128,26 @@ export default function ChatWindow() {
         };
 
         recognition.current.onresult = (event: SpeechRecognitionEvent) => {
-          if (!mounted) return;
-          
-          const transcript = Array.from(event.results)
-            .map(result => result[0].transcript)
-            .join('');
-          
-          setMessage(transcript);
-          
-          // Update the input field with the transcript
-          if (event.results[0].isFinal && transcript.trim()) {
-            console.log('Final transcript:', transcript);
+          try {
+            const results = Array.from(event.results);
+            const lastResult = results[results.length - 1];
+            const transcript = lastResult[0].transcript;
+            
+            // Update the message state with the latest transcript
             setMessage(transcript);
+            
+            // Log the transcript for debugging
+            if (lastResult.isFinal && transcript.trim()) {
+              console.log('Final transcript:', transcript);
+            }
+          } catch (error) {
+            console.error('Error processing speech recognition result:', error);
+            toast({
+              variant: "destructive",
+              title: "Speech Recognition Error",
+              description: "There was an error processing your voice input. Please try again.",
+              duration: 5000,
+            });
           }
         };
 
@@ -341,15 +349,26 @@ export default function ChatWindow() {
       };
 
       recognition.current.onresult = (event: SpeechRecognitionEvent) => {
-        const transcript = Array.from(event.results)
-          .map(result => result[0].transcript)
-          .join('');
-        
-        setMessage(transcript);
-        
-        // Only update the input field with the transcript, don't auto-submit
-        if (event.results[0].isFinal && transcript.trim()) {
-          console.log('Final transcript:', transcript);
+        try {
+          const results = Array.from(event.results);
+          const lastResult = results[results.length - 1];
+          const transcript = lastResult[0].transcript;
+          
+          // Update the message state with the latest transcript
+          setMessage(transcript);
+          
+          // Log the transcript for debugging
+          if (lastResult.isFinal && transcript.trim()) {
+            console.log('Final transcript:', transcript);
+          }
+        } catch (error) {
+          console.error('Error processing speech recognition result:', error);
+          toast({
+            variant: "destructive",
+            title: "Speech Recognition Error",
+            description: "There was an error processing your voice input. Please try again.",
+            duration: 5000,
+          });
         }
       };
 
@@ -411,11 +430,27 @@ export default function ChatWindow() {
               duration: 2000,
             });
             
-            // Send the message to Santa
-            mutation.mutate(message);
-            
-            // Clear the message input after sending
-            setMessage('');
+            try {
+              // Send the message to Santa
+              await mutation.mutateAsync(message);
+              
+              // Clear the message input after successful send
+              setMessage('');
+              
+              toast({
+                title: "Message Sent",
+                description: "Your message is on its way to Santa!",
+                duration: 3000,
+              });
+            } catch (error) {
+              console.error('Error sending message:', error);
+              toast({
+                variant: "destructive",
+                title: "Error",
+                description: "Failed to send your message to Santa. Please try again.",
+                duration: 5000,
+              });
+            }
           }
         }
         return;
