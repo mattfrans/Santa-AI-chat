@@ -150,6 +150,7 @@ export default function ChatWindow() {
           setIsListening(false);
 
           let errorMessage = 'There was a problem with the voice input.';
+          let shouldShowError = true;
           
           switch (event.error) {
             case 'network':
@@ -162,14 +163,30 @@ export default function ChatWindow() {
               errorMessage = 'No speech was detected. Please try again.';
               break;
             case 'aborted':
-              return; // Don't show error for user-initiated stops
+              shouldShowError = false; // Don't show error for user-initiated stops
+              break;
+            case 'audio-capture':
+              errorMessage = 'No microphone was found. Please check your microphone settings.';
+              break;
+            case 'service-not-allowed':
+              errorMessage = 'Speech recognition service is not allowed. Please try a different browser.';
+              break;
+            default:
+              errorMessage = `Voice input error: ${event.error}. Please try again.`;
           }
 
-          toast({
-            variant: 'destructive',
-            title: 'Voice Input Error',
-            description: errorMessage,
-          });
+          if (shouldShowError) {
+            toast({
+              variant: 'destructive',
+              title: 'Voice Input Error',
+              description: errorMessage,
+              duration: 5000, // Show for 5 seconds
+            });
+          }
+          
+          // Reset the UI state
+          setMessage('');
+          recognition.current?.abort();
         };
 
       } catch (error) {
@@ -236,8 +253,37 @@ export default function ChatWindow() {
     }
   };
 
+  const checkBrowserSupport = () => {
+    const hasWebkitSpeech = 'webkitSpeechRecognition' in window;
+    const hasSpeechRecognition = 'SpeechRecognition' in window;
+    const hasSpeechSynthesis = 'speechSynthesis' in window;
+    
+    if (!hasWebkitSpeech && !hasSpeechRecognition) {
+      toast({
+        title: "Browser Not Supported",
+        description: "Voice features are not supported in your browser. Please try Chrome, Edge, or Safari.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      return false;
+    }
+    
+    if (!hasSpeechSynthesis) {
+      toast({
+        title: "Text-to-Speech Not Available",
+        description: "Your browser doesn't support text-to-speech. Santa's voice responses will be disabled.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    }
+    
+    return true;
+  };
+
   const toggleListening = async () => {
     try {
+      if (!checkBrowserSupport()) return;
+      
       if (!recognition.current) {
         toast({
           title: "Voice Input Not Available",
@@ -263,12 +309,20 @@ export default function ChatWindow() {
           toast({
             title: "Voice Input Started",
             description: "Listening for your message to Santa...",
+            duration: 3000,
           });
+          
+          // Scroll to bottom to show the listening indicator
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
         } catch (error) {
+          console.error('Microphone access error:', error);
           toast({
             title: "Microphone Access Denied",
             description: "Please allow microphone access to use voice input.",
             variant: "destructive",
+            duration: 5000,
           });
         }
       }
