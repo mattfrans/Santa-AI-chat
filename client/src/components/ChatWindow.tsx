@@ -411,27 +411,11 @@ export default function ChatWindow() {
               duration: 2000,
             });
             
-            try {
-              // Send the message to Santa
-              mutation.mutate(message);
-              
-              // Clear the message input after sending
-              setMessage('');
-              
-              toast({
-                title: "Message Sent",
-                description: "Your message is on its way to Santa!",
-                duration: 3000,
-              });
-            } catch (error) {
-              console.error('Error sending message:', error);
-              toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to send your message to Santa. Please try again.",
-                duration: 5000,
-              });
-            }
+            // Send the message to Santa
+            mutation.mutate(message);
+            
+            // Clear the message input after sending
+            setMessage('');
           }
         }
         return;
@@ -618,7 +602,7 @@ export default function ChatWindow() {
                   : 'bg-gray-500 hover:bg-gray-600 text-white'
               } transition-all duration-300 relative focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 isListening ? 'focus:ring-green-500' : 'focus:ring-gray-500'
-              }`}
+              } !important`}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
               <Mic className={`h-4 w-4 ${isListening ? 'text-white' : 'text-slate-100'}`} />
