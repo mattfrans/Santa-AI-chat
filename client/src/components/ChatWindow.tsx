@@ -347,10 +347,9 @@ export default function ChatWindow() {
         
         setMessage(transcript);
         
-        // Auto-submit if we have a final result
+        // Only update the input field with the transcript, don't auto-submit
         if (event.results[0].isFinal && transcript.trim()) {
-          stopListening();
-          mutation.mutate(transcript);
+          console.log('Final transcript:', transcript);
         }
       };
 
@@ -399,7 +398,15 @@ export default function ChatWindow() {
       if (!checkBrowserSupport()) return;
       
       if (isListening) {
-        stopListening();
+        if (recognition.current) {
+          recognition.current.stop();
+          setIsListening(false);
+          toast({
+            title: "Voice Input Stopped",
+            description: "Processing your message...",
+            duration: 2000,
+          });
+        }
         return;
       }
 
@@ -408,8 +415,7 @@ export default function ChatWindow() {
       
       try {
         // Request microphone permission explicitly
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop()); // Clean up
+        await navigator.mediaDevices.getUserMedia({ audio: true });
         
         // Ensure we have a fresh recognition instance
         if (!recognition.current) {
@@ -418,11 +424,12 @@ export default function ChatWindow() {
         
         // Start recognition
         recognition.current?.start();
+        setIsListening(true);
         
         toast({
           title: "Voice Input Started",
-          description: "Listening for your message to Santa...",
-          duration: 2000,
+          description: "Listening for your message to Santa... Click the microphone button again to stop.",
+          duration: 3000,
         });
         
         // Scroll to bottom to show the listening indicator
@@ -437,11 +444,11 @@ export default function ChatWindow() {
           variant: "destructive",
           duration: 5000,
         });
-        stopListening();
+        setIsListening(false);
       }
     } catch (error) {
       console.error('Error toggling speech recognition:', error);
-      stopListening();
+      setIsListening(false);
       toast({
         title: "Voice Input Error",
         description: "There was an error with the voice input. Please try again.",
@@ -580,9 +587,11 @@ export default function ChatWindow() {
               variant={isListening ? "destructive" : "secondary"}
               className={`${
                 isListening 
-                  ? 'bg-green-500 hover:bg-green-600 ring-2 ring-green-300' 
-                  : 'bg-slate-500 hover:bg-slate-600'
-              } transition-all duration-300 relative`}
+                  ? 'bg-green-500 hover:bg-green-600 ring-2 ring-green-300 animate-pulse' 
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+              } transition-all duration-300 relative focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                isListening ? 'focus:ring-green-500' : 'focus:ring-slate-500'
+              }`}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
               <Mic className={`h-4 w-4 ${isListening ? 'text-white' : 'text-slate-100'}`} />
