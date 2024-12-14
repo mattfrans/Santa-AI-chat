@@ -9,6 +9,21 @@ interface ChatResponse {
   suggestions?: string[];
 }
 
+export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
+  try {
+    const transcription = await openai.audio.transcriptions.create({
+      file: audioBuffer,
+      model: "whisper-1",
+      language: "en"
+    });
+
+    return transcription.text;
+  } catch (error) {
+    console.error("Error transcribing audio:", error);
+    throw new Error("Failed to transcribe audio");
+  }
+}
+
 export async function generateSantaResponse(
   message: string,
   childAge?: number

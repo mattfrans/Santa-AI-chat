@@ -402,16 +402,15 @@ export default function ChatWindow() {
           recognition.current.stop();
           setIsListening(false);
           
-          // If we have a message, send it to Santa
+          // If we have a message from browser's speech recognition, use that
           if (message.trim()) {
             mutation.mutate(message);
+            toast({
+              title: "Voice Input Stopped",
+              description: "Sending your message to Santa...",
+              duration: 2000,
+            });
           }
-          
-          toast({
-            title: "Voice Input Stopped",
-            description: "Sending your message to Santa...",
-            duration: 2000,
-          });
         }
         return;
       }

@@ -4,6 +4,8 @@ import { db } from "../db";
 import { chats, wishlistItems, users, type User } from "@db/schema";
 import { eq } from "drizzle-orm";
 import OpenAI from "openai";
+import multer from "multer";
+import { transcribeAudio } from "./openai";
 
 declare global {
   namespace Express {
@@ -21,6 +23,13 @@ declare global {
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
 
 export function registerRoutes(app: Express) {
   setupAuth(app);
@@ -208,6 +217,26 @@ Remember: Keep responses warm and friendly but avoid repetition. Engage with the
           wishlistItems: true
         }
       });
+
+  // Audio transcription endpoint
+  app.post("/api/transcribe", upload.single('audio'), async (req, res) => {
+    if (!req.user) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    if (!req.file) {
+      return res.status(400).send("No audio file provided");
+    }
+
+    try {
+      const transcribedText = await transcribeAudio(req.file.buffer);
+      res.json({ text: transcribedText });
+    } catch (error) {
+      console.error('Error transcribing audio:', error);
+      res.status(500).send("An error occurred while transcribing audio");
+    }
+  });
+
 
       res.json(children);
     } catch (error) {
