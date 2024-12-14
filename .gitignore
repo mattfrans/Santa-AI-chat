@@ -4,3 +4,44 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor directories and files
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/extensions.json
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Build output
+build/
+out/
+
+# Coverage directory used by tools like istanbul
+coverage
+
+# System Files
+Thumbs.db
