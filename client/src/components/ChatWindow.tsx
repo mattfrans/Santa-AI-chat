@@ -246,10 +246,45 @@ export default function ChatWindow() {
   };
 
   const stopListening = () => {
-    if (recognition.current) {
-      recognition.current.abort(); // Use abort() instead of stop() for immediate halt
+    try {
+      if (recognition.current) {
+        // First, remove all event listeners
+        recognition.current.onresult = null;
+        recognition.current.onend = null;
+        recognition.current.onerror = null;
+        recognition.current.onstart = null;
+        
+        // Stop both ways to ensure it's really stopped
+        recognition.current.abort();
+        recognition.current.stop();
+        
+        // Reset the recognition instance
+        recognition.current = null;
+        
+        // Update UI state
+        setIsListening(false);
+        
+        // Only clear message if it's empty/whitespace
+        if (!message.trim()) {
+          setMessage('');
+        }
+        
+        // Cancel any ongoing speech synthesis
+        if (window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
+        
+        // Reinitialize recognition for next use
+        initializeSpeechRecognition();
+        
+        console.log('Speech recognition stopped successfully');
+      }
+    } catch (error) {
+      console.error('Error stopping speech recognition:', error);
+      // Force reset all states
       setIsListening(false);
-      setMessage(''); // Clear any partial message
+      recognition.current = null;
+      initializeSpeechRecognition();
     }
   };
 
@@ -280,60 +315,138 @@ export default function ChatWindow() {
     return true;
   };
 
+  const initializeSpeechRecognition = () => {
+    try {
+      // Check for browser support
+      if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+        throw new Error('Speech recognition not supported in this browser');
+      }
+
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition.current = new SpeechRecognition();
+      
+      // Configure recognition settings
+      recognition.current.continuous = false;
+      recognition.current.interimResults = true;
+      recognition.current.lang = 'en-US';
+
+      recognition.current.onstart = () => {
+        setIsListening(true);
+        console.log('Speech recognition started');
+      };
+
+      recognition.current.onend = () => {
+        setIsListening(false);
+        console.log('Speech recognition ended');
+      };
+
+      recognition.current.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('');
+        
+        setMessage(transcript);
+        
+        // Auto-submit if we have a final result
+        if (event.results[0].isFinal && transcript.trim()) {
+          stopListening();
+          mutation.mutate(transcript);
+        }
+      };
+
+      recognition.current.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error('Speech recognition error:', event.error);
+        stopListening();
+        
+        let errorMessage = 'There was a problem with the voice input.';
+        switch (event.error) {
+          case 'network':
+            errorMessage = 'Network error occurred. Please check your connection.';
+            break;
+          case 'not-allowed':
+            errorMessage = 'Microphone access denied. Please allow access and try again.';
+            break;
+          case 'no-speech':
+            errorMessage = 'No speech detected. Please try again.';
+            break;
+          case 'audio-capture':
+            errorMessage = 'No microphone found. Please check your settings.';
+            break;
+          default:
+            errorMessage = `Voice input error: ${event.error}. Please try again.`;
+        }
+        
+        toast({
+          variant: 'destructive',
+          title: 'Voice Input Error',
+          description: errorMessage,
+          duration: 5000,
+        });
+      };
+
+    } catch (error) {
+      console.error('Speech recognition initialization error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Voice Input Not Available',
+        description: 'Speech recognition is not supported in your browser.',
+      });
+    }
+  };
+
   const toggleListening = async () => {
     try {
       if (!checkBrowserSupport()) return;
       
-      if (!recognition.current) {
-        toast({
-          title: "Voice Input Not Available",
-          description: "Your browser doesn't support voice input.",
-          variant: "destructive",
-        });
+      if (isListening) {
+        stopListening();
         return;
       }
 
-      if (isListening) {
-        stopListening();
-      } else {
-        // Clear previous message when starting new recording
-        setMessage('');
+      // Clear previous message when starting new recording
+      setMessage('');
+      
+      try {
+        // Request microphone permission explicitly
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // Clean up
         
-        try {
-          // Request microphone permission explicitly
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach(track => track.stop()); // Clean up
-          
-          // Start recognition
-          recognition.current.start();
-          toast({
-            title: "Voice Input Started",
-            description: "Listening for your message to Santa...",
-            duration: 3000,
-          });
-          
-          // Scroll to bottom to show the listening indicator
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        } catch (error) {
-          console.error('Microphone access error:', error);
-          toast({
-            title: "Microphone Access Denied",
-            description: "Please allow microphone access to use voice input.",
-            variant: "destructive",
-            duration: 5000,
-          });
+        // Ensure we have a fresh recognition instance
+        if (!recognition.current) {
+          initializeSpeechRecognition();
         }
+        
+        // Start recognition
+        recognition.current?.start();
+        
+        toast({
+          title: "Voice Input Started",
+          description: "Listening for your message to Santa...",
+          duration: 2000,
+        });
+        
+        // Scroll to bottom to show the listening indicator
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      } catch (error) {
+        console.error('Microphone access error:', error);
+        toast({
+          title: "Microphone Access Denied",
+          description: "Please allow microphone access to use voice input.",
+          variant: "destructive",
+          duration: 5000,
+        });
+        stopListening();
       }
     } catch (error) {
       console.error('Error toggling speech recognition:', error);
+      stopListening();
       toast({
         title: "Voice Input Error",
         description: "There was an error with the voice input. Please try again.",
         variant: "destructive",
       });
-      setIsListening(false);
     }
   };
 
@@ -464,18 +577,19 @@ export default function ChatWindow() {
             <Button
               type="button"
               onClick={toggleListening}
+              variant={isListening ? "destructive" : "secondary"}
               className={`${
                 isListening 
-                  ? 'bg-green-600 hover:bg-green-700 ring-2 ring-green-400 ring-offset-2' 
-                  : 'bg-gray-600 hover:bg-gray-700'
-              } transition-all duration-200 relative`}
+                  ? 'bg-green-500 hover:bg-green-600 ring-2 ring-green-300' 
+                  : 'bg-slate-500 hover:bg-slate-600'
+              } transition-all duration-300 relative`}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
-              <Mic className="h-4 w-4" />
+              <Mic className={`h-4 w-4 ${isListening ? 'text-white' : 'text-slate-100'}`} />
               {isListening && (
                 <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
                 </span>
               )}
             </Button>
