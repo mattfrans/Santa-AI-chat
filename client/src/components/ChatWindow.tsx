@@ -401,9 +401,15 @@ export default function ChatWindow() {
         if (recognition.current) {
           recognition.current.stop();
           setIsListening(false);
+          
+          // If we have a message, send it to Santa
+          if (message.trim()) {
+            mutation.mutate(message);
+          }
+          
           toast({
             title: "Voice Input Stopped",
-            description: "Processing your message...",
+            description: "Sending your message to Santa...",
             duration: 2000,
           });
         }
@@ -587,10 +593,10 @@ export default function ChatWindow() {
               variant={isListening ? "destructive" : "secondary"}
               className={`${
                 isListening 
-                  ? 'bg-green-500 hover:bg-green-600 ring-2 ring-green-300 animate-pulse' 
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+                  ? 'bg-green-500 hover:bg-green-600 ring-2 ring-green-300 animate-pulse text-white' 
+                  : 'bg-gray-500 hover:bg-gray-600 text-white'
               } transition-all duration-300 relative focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isListening ? 'focus:ring-green-500' : 'focus:ring-slate-500'
+                isListening ? 'focus:ring-green-500' : 'focus:ring-gray-500'
               }`}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
